@@ -1,25 +1,38 @@
-define(function() {
-	return {
+module.exports = {
+  run(editor, sender, opts = {}) {
+    const modal = editor.Modal;
+    const am = editor.AssetManager;
+    const config = am.getConfig();
+    const amContainer = am.getContainer();
+    const title = opts.modalTitle || config.modalTitle || '';
+    const types = opts.types;
+    const accept = opts.accept;
 
-		run: function(editor, sender, opts) {
-			var opt = opts || {};
-			var config = editor.getConfig();
-			var modal = editor.Modal;
-			var assetManager = editor.AssetManager;
-			assetManager.onClick(opt.onClick);
-			assetManager.onDblClick(opt.onDblClick);
+    am.setTarget(opts.target);
+    am.onClick(opts.onClick);
+    am.onDblClick(opts.onDblClick);
+    am.onSelect(opts.onSelect);
 
-			// old API
-			assetManager.setTarget(opt.target);
-			assetManager.onSelect(opt.onSelect);
+    if (!this.rendered || types) {
+      let assets = am.getAll();
 
-			if (modal) {
-				modal.setTitle(opt.modalTitle || 'Select image');
-				modal.setContent('');
-				modal.setContent(assetManager.render(1));
-				modal.open();
-			}
-		},
+      if (types) {
+        assets = assets.filter(a => types.indexOf(a.get('type')) !== -1);
+      }
 
-	};
-});
+      am.render(assets);
+      this.rendered = 1;
+    }
+
+    if (accept) {
+      const uploadEl = amContainer.querySelector(
+        `input#${config.stylePrefix}uploadFile`
+      );
+      uploadEl && uploadEl.setAttribute('accept', accept);
+    }
+
+    modal.setTitle(title);
+    modal.setContent(amContainer);
+    modal.open();
+  }
+};

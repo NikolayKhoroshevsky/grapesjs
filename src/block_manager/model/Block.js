@@ -1,13 +1,24 @@
-define(['backbone'],
-  function(Backbone){
+import Backbone from 'backbone';
+var Category = require('./Category');
 
-    return Backbone.Model.extend({
+module.exports = Backbone.Model.extend({
+  defaults: {
+    label: '',
+    content: '',
+    category: '',
+    attributes: {}
+  },
 
-      defaults :{
-        label: '',
-        content: '',
-        attributes: {},
-      },
+  initialize(opts = {}) {
+    let category = this.get('category');
 
-    });
-  });
+    if (category) {
+      if (typeof category == 'string') {
+        var catObj = new Category({
+          id: category,
+          label: category
+        });
+      }
+    }
+  }
+});

@@ -1,73 +1,71 @@
-define([ 'backbone', 'require'],
-	function (Backbone, require) {
+import { isEmpty } from 'underscore';
 
-		return Backbone.Collection.extend({
+const Backbone = require('backbone');
 
-			initialize: function(models, opt){
+module.exports = Backbone.Collection.extend({
+  initialize(models, opt = {}) {
+    this.listenTo(this, 'add', this.onAdd);
+    this.config = opt.config;
+    this.em = opt.em;
 
-				this.on('add', this.onAdd);
+    this.model = (attrs, options) => {
+      var model;
+      var df = opt.componentTypes;
+      options.em = opt.em;
+      options.config = opt.config;
+      options.componentTypes = df;
 
-				this.config = opt && opt.config ? opt.config : null;
+      for (var it = 0; it < df.length; it++) {
+        var dfId = df[it].id;
+        if (dfId == attrs.type) {
+          model = df[it].model;
+          break;
+        }
+      }
 
-				// Inject editor
-				if(opt && opt.sm)
-					this.editor = opt.sm;
+      if (!model) {
+        // get the last one
+        model = df[df.length - 1].model;
+      }
 
-				this.model	= function(attrs, options) {
-					var model;
+      return new model(attrs, options);
+    };
+  },
 
-					if(!options.sm && opt && opt.sm)
-						options.sm = opt.sm;
+  add(models, opt = {}) {
+    if (typeof models === 'string') {
+      const cssc = this.em.get('CssComposer');
+      const parsed = this.em.get('Parser').parseHtml(models);
+      models = parsed.html;
 
-					if(opt && opt.config)
-						options.config = opt.config;
+      if (parsed.css && cssc) {
+        const { avoidUpdateStyle } = opt;
+        const added = cssc.addCollection(parsed.css, {
+          extend: 1,
+          avoidUpdateStyle
+        });
+      }
+    }
 
-					if(opt && opt.defaultTypes)
-							options.defaultTypes = opt.defaultTypes;
+    return Backbone.Collection.prototype.add.apply(this, [models, opt]);
+  },
 
-					if(opt && opt.componentTypes)
-							options.componentTypes = opt.componentTypes;
+  onAdd(model, c, opts) {
+    const em = this.em;
+    const style = model.getStyle();
+    const avoidInline = em && em.getConfig('avoidInlineStyle');
 
-					var df = opt.defaultTypes;
-					var cf = opt.componentTypes;
-
-					if(df[attrs.type]){
-						model = df[attrs.type].model;
-					}else{
-						model = df.default.model;
-					}
-
-					return new model(attrs, options);
-				};
-
-			},
-
-			add: function(models, opt){
-				if(typeof models === 'string'){
-					var parsed = this.editor.get('Parser').parseHtml(models);
-					models = parsed.html;
-
-					var cssc = this.editor.get('CssComposer');
-					if(parsed.css && cssc){
-						var added = cssc.addCollection(parsed.css);
-					}
-				}
-
-				return Backbone.Collection.prototype.add.apply(this, [models, opt]);
-			},
-
-			onAdd: function(model, c, opts){
-				var style = model.get('style');
-
-				if(!_.isEmpty(style) && this.editor){
-					var cssC = this.editor.get('CssComposer');
-					var newClass = this.editor.get('SelectorManager').add(model.cid);
-					model.set({style:{}});
-					model.get('classes').add(newClass);
-					var rule = cssC.add(newClass);
-					rule.set('style', style);
-				}
-      },
-
-		});
+    if (
+      !isEmpty(style) &&
+      !avoidInline &&
+      em &&
+      em.get &&
+      em.getConfig('forceClass')
+    ) {
+      const name = model.cid;
+      const rule = em.get('CssComposer').setClassRule(name, style);
+      model.setStyle({});
+      model.addClass(name);
+    }
+  }
 });

@@ -1,99 +1,118 @@
-define(['backbone','require'],
-function(Backbone, require) {
+import Backbone from 'backbone';
+import { isUndefined } from 'underscore';
 
-	return Backbone.View.extend({
+module.exports = Backbone.View.extend({
+  initialize(o) {
+    this.opts = o || {};
+    this.config = o.config || {};
+    const coll = this.collection;
+    this.listenTo(coll, 'add', this.addTo);
+    this.listenTo(coll, 'reset', this.resetChildren);
+    this.listenTo(coll, 'remove', this.removeChildren);
+  },
 
-		initialize: function(o) {
-			this.opts = o || {};
-			this.config = o.config || {};
-			this.listenTo( this.collection, 'add', this.addTo );
-			this.listenTo( this.collection, 'reset', this.render );
-		},
+  removeChildren(removed) {
+    const view = removed.view;
+    if (!view) return;
+    view.remove.apply(view);
+    const children = view.childrenView;
+    children && children.stopListening();
+  },
 
-		/**
-		 * Add to collection
-		 * @param	{Object} Model
-		 *
-		 * @return	void
-		 * @private
-		 * */
-		addTo: function(model) {
-			var i	= this.collection.indexOf(model);
-			this.addToCollection(model, null, i);
+  /**
+   * Add to collection
+   * @param {Model} model
+   * @param {Collection} coll
+   * @param {Object} opts
+   * @private
+   * */
+  addTo(model, coll = {}, opts = {}) {
+    const em = this.config.em;
+    const i = this.collection.indexOf(model);
+    this.addToCollection(model, null, i);
 
-			if(this.config.em) {
-				this.config.em.trigger('add:component', model);
-			}
-		},
+    if (em && !opts.temporary) {
+      em.trigger('component:add', model);
+    }
+  },
 
-		/**
-		 * Add new object to collection
-		 * @param	{Object}	Model
-		 * @param	{Object} 	Fragment collection
-		 * @param	{Integer}	Index of append
-		 *
-		 * @return 	{Object} 	Object rendered
-		 * @private
-		 * */
-		addToCollection: function(model, fragmentEl, index){
-			if(!this.compView)
-				this.compView	=	require('./ComponentView');
-			var fragment	= fragmentEl || null,
-			viewObject	= this.compView;
-			//console.log('Add to collection', model, 'Index',i);
+  /**
+   * Add new object to collection
+   * @param  {Object}  Model
+   * @param  {Object}   Fragment collection
+   * @param  {Integer}  Index of append
+   *
+   * @return   {Object}   Object rendered
+   * @private
+   * */
+  addToCollection(model, fragmentEl, index) {
+    if (!this.compView) this.compView = require('./ComponentView');
+    var fragment = fragmentEl || null,
+      viewObject = this.compView;
 
-			var dt = this.opts.defaultTypes;
-			var ct = this.opts.componentTypes;
+    var dt = this.opts.componentTypes;
 
-			var type = model.get('type');
-			viewObject = dt[type] ? dt[type].view : dt.default.view;
+    var type = model.get('type');
 
-			var view = new viewObject({
-				model: model,
-				config: this.config,
-				defaultTypes: dt,
-				componentTypes: ct,
-			});
-			var rendered	= view.render().el;
-			if(view.model.get('type') == 'textnode')
-				rendered =  document.createTextNode(view.model.get('content'));
+    for (var it = 0; it < dt.length; it++) {
+      var dtId = dt[it].id;
+      if (dtId == type) {
+        viewObject = dt[it].view;
+        break;
+      }
+    }
+    //viewObject = dt[type] ? dt[type].view : dt.default.view;
 
-			if(fragment){
-				fragment.appendChild(rendered);
-			}else{
-				var p	= this.$parent;
-				if(typeof index != 'undefined'){
-					var method	= 'before';
-					// If the added model is the last of collection
-					// need to change the logic of append
-					if(p.children().length == index){
-						index--;
-						method	= 'after';
-					}
-					// In case the added is new in the collection index will be -1
-					if(index < 0){
-						p.append(rendered);
-					}else
-						p.children().eq(index)[method](rendered);
-				}else{
-					p.append(rendered);
-				}
-			}
+    var view = new viewObject({
+      model,
+      config: this.config,
+      componentTypes: dt
+    });
+    var rendered = view.render().el;
+    if (view.model.get('type') == 'textnode')
+      rendered = document.createTextNode(view.model.get('content'));
 
-			return rendered;
-		},
+    if (fragment) {
+      fragment.appendChild(rendered);
+    } else {
+      const parent = this.parentEl;
+      const children = parent.childNodes;
 
-		render: function($p) {
-			var fragment 	= document.createDocumentFragment();
-			this.$parent	= $p || this.$el;
-			this.$el.empty();
-			this.collection.each(function(model){
-				this.addToCollection(model, fragment);
-			},this);
-			this.$el.append(fragment);
+      if (!isUndefined(index)) {
+        const lastIndex = children.length == index;
 
-			return this;
-		}
+        // If the added model is the last of collection
+        // need to change the logic of append
+        if (lastIndex) {
+          index--;
+        }
 
-	});
+        // In case the added is new in the collection index will be -1
+        if (lastIndex || !children.length) {
+          parent.appendChild(rendered);
+        } else {
+          parent.insertBefore(rendered, children[index]);
+        }
+      } else {
+        parent.appendChild(rendered);
+      }
+    }
+
+    return rendered;
+  },
+
+  resetChildren() {
+    this.parentEl.innerHTML = '';
+    this.collection.each(model => this.addToCollection(model));
+  },
+
+  render(parent) {
+    const el = this.el;
+    const frag = document.createDocumentFragment();
+    this.parentEl = parent || this.el;
+    this.collection.each(model => this.addToCollection(model, frag));
+    el.innerHTML = '';
+    el.appendChild(frag);
+    return this;
+  }
 });

@@ -1,145 +1,117 @@
-define(['backbone'],
-	function (Backbone) {
-		/**
-		 * @class CssGenerator
-		 * */
-		return Backbone.Model.extend({
+module.exports = require('backbone').Model.extend({
+  initialize() {
+    this.compCls = [];
+    this.ids = [];
+  },
 
-			initialize: function() {
-				this.compCls = [];
-			},
+  /**
+   * Get CSS from a component
+   * @param {Model} model
+   * @return {String}
+   */
+  buildFromModel(model, opts = {}) {
+    let code = '';
+    const em = this.em;
+    const avoidInline = em && em.getConfig('avoidInlineStyle');
+    const style = model.styleToString();
+    const classes = model.get('classes');
+    const wrappesIsBody = opts.wrappesIsBody;
+    const isWrapper = model.get('wrapper');
+    this.ids.push(`#${model.getId()}`);
 
-			/**
-			 * Get CSS from component
-			 * @param {Model} model
-			 * @return {String}
-			 */
-			buildFromModel: function (model) {
-				var code = '';
-				var style = model.get('style');
-				var classes = model.get('classes');
+    // Let's know what classes I've found
+    classes.each(model => this.compCls.push(model.getFullName()));
 
-				// Let's know what classes I've found
-				if(classes) {
-					classes.each(function(model){
-						this.compCls.push(model.get('name'));
-					}, this);
-				}
+    if ((!avoidInline || isWrapper) && style) {
+      let selector = `#${model.getId()}`;
+      selector = wrappesIsBody && isWrapper ? 'body' : selector;
+      code = `${selector}{${style}}`;
+    }
 
-				if(style && Object.keys(style).length !== 0) {
-					code += '#' + model.cid + '{';
-					for(var prop in style){
-						if(style.hasOwnProperty(prop))
-							code += prop + ':' + style[prop] + ';';
-					}
-					code += '}';
-				}
+    const components = model.components();
+    components.each(model => (code += this.buildFromModel(model, opts)));
+    return code;
+  },
 
-				return code;
-			},
+  build(model, opts = {}) {
+    const cssc = opts.cssc;
+    const em = opts.em || '';
+    this.em = em;
+    this.compCls = [];
+    this.ids = [];
+    var code = this.buildFromModel(model, opts);
 
-			/**
-			 * Get CSS from components
-			 * @param {Model} model
-			 * @return {String}
-			 */
-			buildFromComp: function(model) {
-				var coll = model.get('components') || model,
-					code = '';
+    if (cssc) {
+      const rules = cssc.getAll();
+      const atRules = {};
+      const dump = [];
 
-				coll.each(function(m) {
-					var cln = m.get('components');
-					code += this.buildFromModel(m);
+      rules.each(rule => {
+        const atRule = rule.getAtRule();
 
-					if(cln.length){
-						code += this.buildFromComp(cln);
-					}
+        if (atRule) {
+          const mRules = atRules[atRule];
+          if (mRules) {
+            mRules.push(rule);
+          } else {
+            atRules[atRule] = [rule];
+          }
+          return;
+        }
 
-				}, this);
+        code += this.buildFromRule(rule, dump, opts);
+      });
 
-				return code;
-			},
+      // Get at-rules
+      for (let atRule in atRules) {
+        let rulesStr = '';
+        const mRules = atRules[atRule];
+        mRules.forEach(
+          rule => (rulesStr += this.buildFromRule(rule, dump, opts))
+        );
 
-			/** @inheritdoc */
-			build: function(model, cssc) {
-				this.compCls = [];
-				var code = this.buildFromModel(model);
-				code += this.buildFromComp(model);
-				var compCls = this.compCls;
+        if (rulesStr) {
+          code += `${atRule}{${rulesStr}}`;
+        }
+      }
 
-				if(cssc){
-					var rules = cssc.getAll();
-					var mediaRules = {};
-					rules.each(function(rule){
-						var width = rule.get('maxWidth');
+      em && em.getConfig('clearStyles') && rules.remove(dump);
+    }
 
-						// If width setted will render it later
-						if(width){
-							var mRule = mediaRules[width];
-							if(mRule)
-								mRule.push(rule);
-							else
-								mediaRules[width] = [rule];
-							return;
-						}
+    return code;
+  },
 
-						code += this.buildFromRule(rule);
-					}, this);
+  /**
+   * Get CSS from the rule model
+   * @param {Model} rule
+   * @return {string} CSS string
+   */
+  buildFromRule(rule, dump, opts = {}) {
+    let result = '';
+    const selectorStrNoAdd = rule.selectorsToString({ skipAdd: 1 });
+    const selectorsAdd = rule.get('selectorsAdd');
+    const singleAtRule = rule.get('singleAtRule');
+    let found;
 
-					// Get media rules
-					for (var ruleW in mediaRules) {
-						var meRules = mediaRules[ruleW];
-						var ruleC = '';
-						for(var i = 0, len = meRules.length; i < len; i++){
-							ruleC += this.buildFromRule(meRules[i]);
-						}
-						if(ruleC)
-							code += '@media (max-width: ' + ruleW + '){' + ruleC + '}';
-					}
+    // This will not render a rule if there is no its component
+    rule.get('selectors').each(selector => {
+      const name = selector.getFullName();
+      if (
+        this.compCls.indexOf(name) >= 0 ||
+        this.ids.indexOf(name) >= 0 ||
+        opts.keepUnusedStyles
+      ) {
+        found = 1;
+      }
+    });
 
-				}
-				return code;
-			},
+    if ((selectorStrNoAdd && found) || selectorsAdd || singleAtRule) {
+      const block = rule.getDeclaration();
+      block && (result += block);
+    } else {
+      dump.push(rule);
+    }
 
-			/**
-			 * Get CSS from the rule model
-			 * @param {Model} rule
-			 * @return {string} CSS string
-			 */
-			buildFromRule: function(rule) {
-				var result = '';
-				var selectors = rule.get('selectors');
-				var ruleStyle = rule.get('style');
-				var state = rule.get('state');
-				var strSel = '';
-				var found = 0;
-				var compCls = this.compCls;
-
-				// Get string of selectors
-				selectors.each(function(selector){
-					strSel += '.' + selector.get('name');
-					if(compCls.indexOf(selector.get('name')) > -1)
-						found = 1;
-				});
-
-				if(strSel && found){
-					strSel  += state ? ':' + state : '';
-					var strStyle = '';
-
-					// Get string of style properties
-					if(ruleStyle && Object.keys(ruleStyle).length !== 0){
-						for(var prop2 in ruleStyle){
-							if(ruleStyle.hasOwnProperty(prop2))
-								strStyle += prop2 + ':' + ruleStyle[prop2] + ';';
-						}
-					}
-
-					if(strStyle)
-						result += strSel + '{' + strStyle + '}';
-				}
-
-				return result;
-			},
-
-		});
+    return result;
+  }
 });
