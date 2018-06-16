@@ -17,7 +17,7 @@
     "codemirror": "^5.38.0",
     "codemirror-formatting": "^1.0.0",
     "font-awesome": "^4.7.0",
-    "keymaster": "^1.6.2",
+    "keymaster": "^1.6.3",
     "promise-polyfill": "^8.0.0",
     "spectrum-colorpicker": "^1.8.0",
     "underscore": "^1.9.0"
